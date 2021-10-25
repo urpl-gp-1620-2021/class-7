@@ -1,0 +1,458 @@
+---
+title: "Class 7 - APIs & Census data in R"
+description: Demo for using APIs, Census data
+date: "`r Sys.Date()`"
+output: 
+    radix::radix_article:
+      toc: true
+      toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	rows.print=5
+)
+options(tibble.max_extra_cols = 5, tibble.print_max = 5)
+```
+
+# Writing API Calls to NYC Open Data
+_Adapted from Sam Rabiyah's demo last year_
+
+When downloading data from [NYC Open Data](https://opendata.cityofnewyork.us/), you can use a special set of commands to filter and manipulate the data before downloading it to your local computer. These commands, unlike ones you'd write in an R script, are actually written **in the URL itself**. This kind of command is called an "API Call"— API stands for "Application programming interface" and is just a special system and language for users to communicate with the NYC Open Data servers. API Calls to NYC Open Data use a special syntax, very similar to a popular language called SQL or Structured Query Language. 
+
+Using API Calls is particularly useful when you're dealing with a **huge dataset** that would otherwise be a hassle to download in full. For this example, we're going to use the [HPD's Housing Maintinance Code Violations](https://data.cityofnewyork.us/Housing-Development/Housing-Maintenance-Code-Violations/wvxf-dwi5) dataset on NYC Open Data, which has ~7 million rows.
+
+## Step 1: Grabbing the "API Endpoint"
+
+Let's first grab the beginning part of the URL that we're going to use to write our API Call. This is called the "API Endpoint" and can be found by clicking the "API" tab on the NYC Open Data page for the dataset you're working with. 
+
+Before copying the URL, make sure you set the data format toggle from "JSON" to "CSV", as that is the format we're going to want our data in.
+
+For our example, our endpoint looks like this: 
+
+```
+https://data.cityofnewyork.us/resource/wvxf-dwi5.csv
+```
+
+
+## Step 2: Writing up your API Call
+
+Copy the API Endpoint into a text editor (I prefer [Sublime Text](https://www.sublimetext.com/) or [Visual Studio Code](https://code.visualstudio.com/)— others like Word or Pages have a tendency to "auto-correct" certain letters and syntax which may mess you up). 
+
+Now, to initiate our query, we are going to add `?$query=` to the end of our URL:
+
+```
+https://data.cityofnewyork.us/resource/wvxf-dwi5.csv?$query=
+
+```
+
+
+## Step 3: Adding your Query
+
+At the end our URL, we can now add some special code to filter the violations data for our download. 
+
+To do this, we're going to want to first take a look at the [API Documentation](https://dev.socrata.com/foundry/data.cityofnewyork.us/wvxf-dwi5) for our dataset of choice, which can be found by clicking on the "API" tab again on the dataset's Open Data page and clicking the "API Docs" button. Specifically, this documentation gives us a run down of all of the columns in the data and how we can reference them by name in our API call. 
+
+For this example, we want to look at the most serious (class C) HPD Violations within the past month. So, we're going to write out our query as such:
+
+**`SELECT *`** -- this selects all columns of the data
+
+**`WHERE inspectiondate>='2021-06-01T00:00:01.000' AND inspectiondate<'2021-09-01T00:00:01.000' AND class='C'`** -- this filters only rows where the `inspectiondate` value is between June 1st and Aug 31st, and the class of the violation is `'C'`. The `AND` operator here allows us to include multiple filtering conditions at once, and could even include conditions on other columns. Note the special format that the dates come in... we were able to spot this by looking at the [Documentation](https://dev.socrata.com/foundry/data.cityofnewyork.us/wvxf-dwi5).
+
+**`LIMIT 100000`** — this sets the maximum number of downloadable rows to 100,000. It's good practice to set a limit here so we don't accidentially try downloading millions of rows at once. **Note: if you don't specify, the default limit is just 1,000 rows!**
+
+You can find more information on the types of queries you can write on the [Socrata Developers Portal](https://dev.socrata.com/docs/queries/query.html) (Socrata is the special "flavor" of API that NYC Open Data uses).
+
+
+## Step 4: Running our API Call
+
+We add the above pieces in that order to our URL:
+
+```https://data.cityofnewyork.us/resource/wvxf-dwi5.csv?$query=SELECT * WHERE inspectiondate>='2021-06-01T00:00:01.000' AND inspectiondate<'2021-09-01T00:00:01.000' AND class='C' LIMIT 100000```
+
+Now, you can copy this full url into your browser and press ENTER— your special download should begin! 
+
+## Importing your data directly into R Studio
+
+Once you have your data downloaded via API Call, you can feel free to import it into your R project like any other CSV. If you want to use the URL you created to import it directly, you can do that as well:
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(tidyverse)
+library(fs)
+
+# R doesn't like weird characters like spaces and carats, so we need the `URLencode` function here to encode those symbols properly
+
+url_hpd_viol <- URLencode("https://data.cityofnewyork.us/resource/wvxf-dwi5.csv?$query=SELECT * WHERE inspectiondate>='2021-06-01T00:00:01.000' AND inspectiondate<'2021-09-01T00:00:01.000' AND class='C' LIMIT 100000")
+
+
+# Now, we can use our formatted url inside our `read_csv` function
+
+summer_hpd_viols <- read_csv(url_hpd_viol)
+
+```
+
+## Note: Always check the size of your output
+
+Sometimes, the limit on your API Call may make your data export smaller than your desired outcome, and you won't necessarily be notified. Therefore, it is always very important to **check the number of rows** of your data from your API Call before proceeding with analysis— if the number of rows matches the exact number of your limit (or is 1000, the default limit), it's very likely that your data got cut off and you don't have the complete set of data that you wanted. 
+
+The below example illustrates this problem and shows how to diagnose. For the example, imagine that we didn't include a `LIMIT` clause in our API Call query:
+
+```https://data.cityofnewyork.us/resource/wvxf-dwi5.csv?$query=SELECT * WHERE inspectiondate>='2021-06-01T00:00:01.000' AND inspectiondate<'2021-09-01T00:00:01.000'```
+
+```{r}
+url_viol_no_limit = URLencode("https://data.cityofnewyork.us/resource/wvxf-dwi5.csv?$query=SELECT * WHERE inspectiondate>='2021-06-01T00:00:01.000' AND inspectiondate<'2021-09-01T00:00:01.000'")
+
+summer_violations_cut_off <- read_csv(url_viol_no_limit)
+
+# Using the head() function won't actually reveal the cut-off problem:
+head(summer_violations_cut_off)
+
+```
+
+By looking at the head of your dataset, things appear to be fine. However, let's use the `nrow()` function to get a sense of how many rows we have:
+
+```{r}
+nrow(summer_violations_cut_off)
+```
+
+Given that our data output is 1,000 rows, which is exactly the default limit for API Calls to NYC Open Data, it's very likely that our data got cut off and there are more rows within our filtering conditions that we want.
+
+Our next step would be to increase our LIMIT in our API CAll until get a number of outputs rows below the limit value. In our first example, you can see we've done just that— our LIMIT was set to 100,000 rows and we only received around 20K or so rows. Safe to say we got all of the rows that fit our filtering criteria...
+
+
+
+# Census/ACS data with `tidycensus`
+
+There are many other types of data access APIs out there, and some of them are slightly more complex with the options that are avilable. Luckily, there are often custom R packages designed to help simplify your interactions with the API so you can provide arguments to R functions and the function will build out the URL request for you.
+
+The [`tidycensus`](https://walker-data.com/tidycensus/) package uses the Census Bureau's APIs to download Decennial Census and ACS summary file estaimtes. As the name implies, the package fits in with the tidyverse collection of packages. 
+
+While the Census API is free to use, they require you to sign up for an API Key to get access. This is easy to do, all you need to provide is an email and there are instructions for doing this on the help package for this function: `?census_api_key`
+
+```{r}
+library(tidycensus)
+
+# you're welcome to use this API code for today's demo
+census_api_key("c32dfbf7d25fe9558fd11bf021780457970f96ff")
+```
+
+Tidycensus includes decennial census and ACS data, but today we'll stick with just ACS using `get_acs()`. There are many variables and they need to be specified using codes. We can explore these using `load_variables()`
+
+```{r}
+acs_vars <- load_variables(2019, "acs5", cache = TRUE)
+acs_vars
+```
+
+<aside>
+The list can be a bit overwhelming, so to make it easier to first find the table use RStudio's data viewer and the column filter option to filter to just the first row of each table `"_001"`
+</aside>
+
+The main function to extract the data is a bit complicated, you should pull up the help page (`?get_acs`) and walk through the arguments as you write it out. 
+
+* `geography`: the level of geography we want for our data, in this case census tract. ([Full list of all available geography levels](https://walker-data.com/tidycensus/articles/basic-usage.html#geography-in-tidycensus))
+* `state`: if the requested geography nests within states, you can limit to one or more states
+* county: if the requested geography nests within counties, you can limit to one or more counties
+* `variables`: this can either be a simple vector of variable codes, or a named vector of variable codes where the names replace the codes in the column names
+* `survey`: the ACS releases 1-, 3-, and 5-year estimates. (Tracts are only available with 5-year data)
+* `year`: this is the latest year of the range. So 2018 with "acs5" means 2014-2018
+* `output`: this can either be "tidy" (default) or wide. For mapping "wide" makes since - where each variable is it's own column
+* `geometry`: whether to include geometries (shapes) with the data
+
+
+In this demo we'll just be downloading the estimates, but another version of the demo that incorporates the geometries for mapping will be posted as well.
+
+
+```{r echo=FALSE, layout="l-body-outset"}
+knitr::include_graphics(path("img", "census-geo-hierarchy.jpg"))
+# https://pad.human.cornell.edu/census2020/boundaries.cfm
+```
+
+
+
+```{r echo=FALSE}
+knitr::include_graphics(path("img", "census-fips-geoid.png"))
+```
+
+
+
+```{r}
+boro_acs_raw <- get_acs(
+  geography = "county",
+  state = "NY",
+  county = c("005", "047", "061", "081", "085"), # NYC counties/boroughs
+  variables = c(
+    "gross_rent_med" = "B25064_001", # median gross rent
+    "hh_inc_med" = "B19013_001", # median household income
+    "rent_burden_med" = "B25071_001", # median rent burden
+    "pov_pct" = "C17002_001", # poverty rate
+    "hh_size_avg" = "B25010_001", # average household size
+    "occ_units" = "B25003_001", # total occupied units
+    "occ_renter_units" = "B25003_003" # renter occupied units
+  ),
+  survey = "acs1", # with county we can use 1-year
+  year = 2019,
+  output = "wide",
+  geometry = FALSE
+)
+
+boro_acs_raw
+```
+
+```{r}
+boro_acs_clean <- boro_acs_raw %>% 
+  mutate(
+    county = str_sub(GEOID, 3, 5),
+    boro = recode(county, "005" = "Bronx", "047" = "Brooklyn", 
+                  "061" = "Manhattan", "081" = "Queens", 
+                  "085" = "Staten Island"),
+    renter_pctE = occ_renter_unitsE / na_if(occ_unitsE, 0),
+    renter_pctM = moe_ratio(occ_renter_unitsE, na_if(occ_unitsE, 0), 
+                            occ_renter_unitsM, occ_unitsM),
+  )
+  
+boro_acs_clean
+```
+
+```{r}
+ggplot(boro_acs_clean) +
+  aes(
+    x = boro, 
+    y = renter_pctE, 
+    ymin = renter_pctE - renter_pctM,
+    ymax = renter_pctE + renter_pctM
+  ) +
+  geom_col() +
+  geom_errorbar()
+```
+
+```{r}
+ggplot(boro_acs_clean) +
+  aes(
+    x = boro, 
+    y = rent_burden_medE, 
+    ymin = rent_burden_medE - rent_burden_medM,
+    ymax = rent_burden_medE + rent_burden_medM
+  ) +
+  geom_col() +
+  geom_errorbar()
+```
+
+
+
+
+```{r results='hide', cache=TRUE}
+acs_tracts_raw <- get_acs(
+  geography = "tract",
+  state = "NY",
+  county = c("005", "047", "061", "081", "085"), # NYC counties/boroughs
+  variables = c(
+    "gross_rent_med" = "B25064_001", # median gross rent
+    "hh_inc_med" = "B19013_001", # median household income
+    "rent_burden_med" = "B25071_001", # median rent burden
+    "pov_denom" = "C17002_001", # poverty rate denominator
+    "pov_lt50" = "C17002_002", # income < 50% poverty level
+    "pov_50_99" = "C17002_002", # income 50-99% poverty level
+    "hh_size_avg" = "B25010_001", # average household size
+    "occ_units" = "B25003_001", # total occupied units
+    "occ_renter_units" = "B25003_003" # renter occupied units
+  ),
+  survey = "acs5",
+  year = 2019,
+  output = "wide",
+  geometry = FALSE
+)
+
+acs_tracts_raw
+```
+
+
+```{r}
+acs_tracts_clean <- acs_tracts_raw %>% 
+  rename(geoid = GEOID) %>% 
+  mutate(
+    state = str_sub(geoid, 1, 2),
+    county = str_sub(geoid, 3, 5),
+    tract = str_sub(geoid, 6, 11),
+    boro = recode(county, "005" = "Bronx", "047" = "Brooklyn", 
+                  "061" = "Manhattan", "081" = "Queens", 
+                  "085" = "Staten Island"),
+    rent_burden_medE = rent_burden_medE/100, # better to have as decimal
+    rent_burden_medM = rent_burden_medM/100,
+    renter_pctE = occ_renter_unitsE / na_if(occ_unitsE, 0),
+    renter_pctM = moe_ratio(occ_renter_unitsE, na_if(occ_unitsE, 0), 
+                            occ_renter_unitsM, occ_unitsM),
+  )
+
+acs_tracts_clean
+```
+
+Now that we have our nice clean dataset of tract-level indicators, we can easily visualize some of the relationships between indicators across tracts with the basics we leaned about ggplot. Here we'll expand beyond the `geom_col` and `geom_line`, and make a scatter point graph with `geom_point` and add a simple smoothed conditional mean line with `geom_smoth` to help cut through the potential overplotting and reveal the pattern. 
+
+```{r layout="l-body-outset"}
+ggplot(acs_tracts_clean) +
+  aes(x = hh_inc_medE, y = gross_rent_medE) +
+  geom_point(size = 0.5, alpha = 0.25) +
+  geom_smooth() +
+  theme_minimal()
+```
+
+Another helpful ggplot feature that we didn't cover before is `facet_wrap()`, which allows you to group your data by another column and create a plot of "small multiples" to more flexibly explore how relations my differ within subsets of the data. Here we can use the categorical `boro` variable, but you could also imagine day of the week, race/ethnicity, etc. where there might be very different trends that are muddled when plotted all together. 
+
+```{r layout="l-body-outset"}
+ggplot(acs_tracts_clean) +
+  aes(x = gross_rent_medE, y = hh_inc_medE, group = boro) +
+  geom_point(size = 0.5, alpha = 0.25) +
+  geom_smooth(size = 0.5) +
+  facet_wrap(~boro) +
+  scale_x_continuous(
+    labels = scales::unit_format(
+      unit = "k", 
+      prefix = "$",
+      scale = 1e-3,
+      accuracy = 1
+    )
+  ) +
+  scale_y_continuous(
+    labels = scales::unit_format(
+      unit = "k", 
+      prefix = "$",
+      scale = 1e-3,
+      accuracy = 1
+    )
+  ) +
+  theme_minimal() +
+  labs(x = "Median Gross Rent", y = "Median Houshold Income")
+```
+
+```{r}
+summer_hpd_viols
+```
+
+```{r}
+viols_tracts <- summer_hpd_viols %>% 
+  mutate(
+    county = recode(boroid, "1" = "061", "2" = "005", 
+                    "3" = "047", "4" = "081", "5" = "085"),
+    tract = case_when(
+      str_length(censustract) >= 4 ~ str_pad(censustract, 6, "left", "0"),
+      TRUE ~ str_pad(str_c(censustract, "00"), 6, "left", "0")
+    ),
+    geoid = str_c("36", county, tract)
+  ) %>% 
+  group_by(geoid) %>% 
+  summarize(violations = n()) %>% 
+  ungroup()
+
+viols_tracts
+```
+
+```{r}
+all_tract_data <- left_join(acs_tracts_clean, viols_tracts, by = "geoid") %>% 
+  mutate(
+    violations = coalesce(violations, 0),
+    viol_rt100 = violations/occ_renter_unitsE*100
+  )
+```
+
+```{r}
+all_tract_data %>% 
+  filter(occ_renter_unitsE > 0) %>% 
+  ggplot() +
+  aes(x = rent_burden_medE, y = viol_rt100, group = boro) +
+  geom_point(size = 0.5, alpha = 0.25) +
+  geom_smooth(size = 0.5) +
+  facet_wrap(~boro) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+  theme_minimal() +
+  labs(
+    x = "Poverty Rate", 
+    y = "Serious housing code violations \nper 100 renter hosueholds",
+    caption = "Sources: American Community Survey (2015-2019), HPD Housing Maintenance Code Violations"
+  )
+```
+ 
+
+
+# Quick preview of spatial data with tidycensus
+
+A more thorough demo of the spatial data capabilities is R is available here:
+https://wagner-mspp-2020.github.io/r-demos/r-demo.html#spatial-data
+
+
+
+```{r results='hide', cache=TRUE}
+library(sf)
+
+acs_tracts_raw_geo <- get_acs(
+  geography = "tract",
+  state = "NY",
+  county = c("005", "047", "061", "081", "085"), # NYC counties/boroughs
+  variables = c(
+    "gross_rent_med" = "B25064_001", # median gross rent
+    "hh_inc_med" = "B19013_001", # median household income
+    "rent_burden_med" = "B25071_001", # median rent burden
+    "pov_denom" = "C17002_001", # poverty rate denominator
+    "pov_lt50" = "C17002_002", # income < 50% poverty level
+    "pov_50_99" = "C17002_002", # income 50-99% poverty level
+    "hh_size_avg" = "B25010_001", # average household size
+    "occ_units" = "B25003_001", # total occupied units
+    "occ_renter_units" = "B25003_003" # renter occupied units
+  ),
+  survey = "acs5",
+  year = 2019,
+  output = "wide",
+  geometry = TRUE
+)
+
+acs_tracts_raw
+```
+
+
+```{r}
+acs_tracts_clean_geo <- acs_tracts_raw_geo %>% 
+  rename(geoid = GEOID) %>% 
+  mutate(
+    state = str_sub(geoid, 1, 2),
+    county = str_sub(geoid, 3, 5),
+    tract = str_sub(geoid, 6, 11),
+    boro = recode(county, "005" = "Bronx", "047" = "Brooklyn", 
+                  "061" = "Manhattan", "081" = "Queens", 
+                  "085" = "Staten Island"),
+    rent_burden_medE = rent_burden_medE/100, # better to have as decimal
+    rent_burden_medM = rent_burden_medM/100,
+    renter_pctE = occ_renter_unitsE / na_if(occ_unitsE, 0),
+    renter_pctM = moe_ratio(occ_renter_unitsE, na_if(occ_unitsE, 0), 
+                            occ_renter_unitsM, occ_unitsM),
+  )
+
+acs_tracts_clean
+```
+
+```{r}
+all_tract_data_geo <- left_join(acs_tracts_clean_geo, viols_tracts, by = "geoid") %>% 
+  mutate(
+    violations = coalesce(violations, 0),
+    viol_rt100 = violations/occ_renter_unitsE*100
+  )
+```
+
+```{r}
+all_tract_data_geo %>% 
+  filter(viol_rt100 < 7.5) %>% 
+  ggplot() +
+  aes(fill = viol_rt100) +
+  geom_sf(color = "white", size = 0.05) +
+  scale_fill_viridis_c(labels = scales::comma) +
+  theme_void() +
+  theme(legend.position = c(0.1, .75)) +
+  labs(
+    title = "Serious Housing Maintenance Code Violations, \nper 100 renter households",
+    subtitle = str_glue("New York City, Census Tracts, Summer 2021"),
+    fill = NULL,
+    caption = "Sources: Department of Housing Preservation and Development (HPD) via Open Data; \nAmerican Community Survey (2015-2019)"
+  )
+```
+
